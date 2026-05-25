@@ -1,7 +1,6 @@
 package com.example.lab3
 
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -17,10 +16,14 @@ class MainActivity : AppCompatActivity() {
     private val allPosts = mutableListOf<Post>()
     private val displayedPosts = mutableListOf<Post>()
     private lateinit var adapter: PostAdapter
-    private val queryCache = mutableMapOf<String, List<Post>>()
+
+    private val queryCache = mutableMapOf<String, CacheEntry>()
+
     private val gson = Gson()
     private val PREFS_NAME = "BlogPrefs"
     private val POSTS_KEY = "saved_posts"
+
+    private val CACHE_EXPIRATION_TIME = 600_000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,7 +97,7 @@ class MainActivity : AppCompatActivity() {
     private fun savePosts() {
         val sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val json = gson.toJson(allPosts)
-        sharedPreferences.edit().putString(POSTS_KEY, json).apply() // Зберігаємо текст у пам'ять
+        sharedPreferences.edit().putString(POSTS_KEY, json).apply()
     }
 
     private fun loadPosts() {
@@ -119,10 +122,17 @@ class MainActivity : AppCompatActivity() {
 
         displayedPosts.clear()
 
-        if (queryCache.containsKey(cacheKey)) {
-            displayedPosts.addAll(queryCache[cacheKey]!!)
+        val currentTime = System.currentTimeMillis()
+        val cachedEntry = queryCache[cacheKey]
+
+        if (cachedEntry != null && (currentTime - cachedEntry.timestamp) < CACHE_EXPIRATION_TIME) {
+            displayedPosts.addAll(cachedEntry.posts)
             Toast.makeText(this, "Завантажено з кешу ⚡", Toast.LENGTH_SHORT).show()
         } else {
+            if (cachedEntry != null) {
+                queryCache.remove(cacheKey)
+            }
+
             val results = mutableListOf<Post>()
             for (post in allPosts) {
                 val matchesSearch = post.title.lowercase().contains(query) || post.content.lowercase().contains(query)
@@ -133,11 +143,17 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             displayedPosts.addAll(results)
-            queryCache[cacheKey] = results.toList()
+
+            queryCache[cacheKey] = CacheEntry(results.toList(), currentTime)
         }
         adapter.notifyDataSetChanged()
     }
 }
+
+data class CacheEntry(
+    val posts: List<Post>,
+    val timestamp: Long
+)
 
 data class Post(
     var title: String,
